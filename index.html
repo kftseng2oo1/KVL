@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>迴路求解 · KVL / KCL</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F5F8FA;--grid:#DFE7EE;--ink:#17233A;--ink2:#54627A;--line:#CBD5E0;--card:#FFFFFF;
+  --v:#2457C5;--i:#0E7C7B;--warn:#B45309;--warnbg:#FFF4E5;--sel:#E3A800;--vbg:#E7EEFB;--ibg:#E2F3F1;
+  --btn:#17233A;--btnfg:#FFFFFF;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0F1622;--grid:#1B2634;--ink:#E7EDF5;--ink2:#9DABC0;--line:#2E3B4C;--card:#182233;
+    --v:#8AB0F7;--i:#62CBC5;--warn:#F2B04C;--warnbg:#2E2410;--sel:#F5C842;--vbg:#1C2C49;--ibg:#163431;
+    --btn:#E7EDF5;--btnfg:#0F1622;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F1622;--grid:#1B2634;--ink:#E7EDF5;--ink2:#9DABC0;--line:#2E3B4C;--card:#182233;
+  --v:#8AB0F7;--i:#62CBC5;--warn:#F2B04C;--warnbg:#2E2410;--sel:#F5C842;--vbg:#1C2C49;--ibg:#163431;
+  --btn:#E7EDF5;--btnfg:#0F1622;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  color:var(--ink);background:var(--paper);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px;
+  font-size:15px;line-height:1.5;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-text-size-adjust:100%;
+}
+.mono{font-family:"IBM Plex Mono",Menlo,Consolas,monospace}
+.wrap{max-width:720px;margin:0 auto;padding:16px 14px 48px}
+header{margin:6px 0 14px}
+header h1{font-size:26px;margin:0;font-weight:700;letter-spacing:.01em}
+header p{margin:4px 0 0;color:var(--ink2);font-size:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+section h2{font-size:16px;margin:0 0 10px;font-weight:700}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;min-height:38px}
+button:focus-visible{outline:2px solid var(--v);outline-offset:2px}
+button.primary{background:var(--btn);color:var(--btnfg);border-color:var(--btn)}
+button.small{padding:4px 10px;min-height:32px;font-size:13px}
+button.danger{color:var(--warn)}
+.schem{width:100%;height:auto;display:block;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:8px;background:var(--paper);border:1px solid var(--line)}
+.hint{color:var(--ink2);font-size:13px;margin:8px 0 0}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{color:var(--ink2);font-weight:500;text-align:left;padding:4px 4px;font-size:12px;border-bottom:1px solid var(--line)}
+td{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:right}
+input,select{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:7px 8px;width:100%;min-height:38px}
+input:focus,select:focus{outline:2px solid var(--v);border-color:transparent}
+.editor td{padding:4px 3px}
+.editor input.name{width:64px}
+.editor input.node{width:64px}
+.editor input.val{width:84px}
+.editor select{width:84px}
+.editor .x{width:34px;padding:0;text-align:center;border:none;background:none;font-size:18px;color:var(--ink2)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.tools label{color:var(--ink2);font-size:13px}
+.tools select{width:auto;min-width:96px}
+.tablewrap{overflow-x:auto}
+.notice{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:14px}
+.notice ul{margin:4px 0 0;padding-left:18px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--vbg);border-radius:8px;padding:6px 10px;min-height:40px;display:flex;flex-direction:column;align-items:flex-start;line-height:1.2;text-align:left}
+.chip b{font-size:12px;color:var(--ink2);font-weight:500}
+.chip span{font-size:15px;color:var(--v)}
+.chip.on,.eq.on{outline:2px solid var(--sel);outline-offset:0}
+.eq{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--paper)}
+.eq h3{margin:0 0 6px;font-size:14px;font-weight:700}
+.eq h3 button{margin-left:8px}
+.eq .l{font-size:13.5px;overflow-x:auto;white-space:nowrap;padding:2px 0}
+.eq .sym{color:var(--ink)}
+.eq .numv{color:var(--ink2)}
+.eq .ok{color:var(--i)}
+.eq .bad{color:var(--warn)}
+sub{font-size:.75em}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--ink2);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.empty{color:var(--ink2);font-size:14px}
+.foot{color:var(--ink2);font-size:12px;text-align:center;margin-top:10px}
+@media (prefers-reduced-motion:no-preference){.chip,.eq{transition:outline-color .15s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>迴路求解</h1>
+  <p>輸入元件與節點，自動列出每個節點的 KCL、每個獨立迴路的 KVL，並解出電壓與電流。</p>
+</header>
+
+<section>
+  <h2>電路圖</h2>
+  <div class="presets" id="presets"></div>
+  <svg id="schem" class="schem" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" aria-label="電路示意圖"></svg>
+  <div class="legend"><span><i style="background:var(--v)"></i>節點電壓</span><span><i style="background:var(--i)"></i>支路電流（箭頭為實際流向）</span><span><i style="background:var(--sel)"></i>目前選取</span></div>
+  <p class="hint">拖曳節點可調整版面。點節點看它的 KCL，點迴路看它在圖上的路徑。</p>
+</section>
+
+<section>
+  <h2>元件</h2>
+  <div class="tablewrap">
+  <table class="editor">
+    <thead><tr><th>名稱</th><th>類型</th><th>節點1</th><th>節點2</th><th>數值</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  </div>
+  <div class="tools">
+    <button id="add" class="small">＋ 新增元件</button>
+    <label>參考節點（0 V）<select id="ref"></select></label>
+    <button id="clear" class="small danger">清空</button>
+  </div>
+  <p class="hint">數值可加字尾 k、M、m、u、n（如 4.7k、2m）。<br>電壓源：節點1 為 −、節點2 為 +。電流源：電流從節點1 經源流向節點2。電流與電壓均以「節點1 → 節點2」為正方向。</p>
+</section>
+
+<div id="notice"></div>
+
+<section>
+  <h2>節點電壓</h2>
+  <div class="chips" id="vnodes"><span class="empty">尚未解出。</span></div>
+</section>
+
+<section>
+  <h2>元件電壓、電流、功率</h2>
+  <div class="tablewrap"><table id="etable"><thead><tr><th>元件</th><th class="num">V<sub>12</sub></th><th class="num">I<sub>12</sub></th><th class="num">功率</th></tr></thead><tbody></tbody></table></div>
+  <p class="hint">功率為元件吸收之功率，負值代表對電路供電。</p>
+</section>
+
+<section>
+  <h2>KCL — 每個節點流出電流之和為 0</h2>
+  <div id="kcl"><span class="empty">尚未解出。</span></div>
+</section>
+
+<section>
+  <h2>KVL — 每個獨立迴路電壓降之和為 0</h2>
+  <div id="kvl"><span class="empty">尚未解出。</span></div>
+  <p class="hint">迴路取自生成樹：每加入一條非樹枝的元件，就形成一個獨立迴路。迴路數 = 元件數 − 節點數 + 1。</p>
+</section>
+
+<p class="foot">節點分析法（MNA）求解 · 單檔 PWA</p>
+</div>
+
+<script>
+(function(){
+'use strict';
+var TYPES={R:{label:'電阻',unit:'Ω'},V:{label:'電壓源',unit:'V'},I:{label:'電流源',unit:'A'}};
+var state={elems:[],ref:'GND',pos:{},sel:null};
+var $=function(id){return document.getElementById(id);};
+var timer=null;
+
+var PRESETS=[
+ {name:'分壓電路',ref:'GND',elems:[['V1','V','GND','A','12'],['R1','R','A','B','1k'],['R2','R','B','GND','2k']]},
+ {name:'雙電源雙迴路',ref:'GND',elems:[['V1','V','GND','A','12'],['R1','R','A','B','4'],['R2','R','B','GND','6'],['R3','R','B','C','2'],['V2','V','GND','C','6']]},
+ {name:'惠斯登電橋',ref:'GND',elems:[['V1','V','GND','T','10'],['R1','R','T','L','100'],['R2','R','T','P','200'],['R3','R','L','GND','100'],['R4','R','P','GND','220'],['R5','R','L','P','50']]},
+ {name:'電流源網路',ref:'GND',elems:[['I1','I','GND','A','2m'],['R1','R','A','GND','1k'],['R2','R','A','B','2.2k'],['R3','R','B','GND','3.3k']]}
+];
+
+/* ---------- utils ---------- */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function parseVal(s){
+  s=String(s||'').replace(/\s+/g,'').replace('µ','u').replace('Ω','');
+  var m=/^([+-]?\d*\.?\d+(?:e[+-]?\d+)?)([pnumkMG]?)$/.exec(s);
+  if(!m) return NaN;
+  var mult={p:1e-12,n:1e-9,u:1e-6,m:1e-3,'':1,k:1e3,M:1e6,G:1e9}[m[2]];
+  return parseFloat(m[1])*mult;
+}
+function trim3(v){
+  var a=Math.abs(v),d=a>=100?1:(a>=10?2:3);
+  var s=v.toFixed(d);
+  if(s.indexOf('.')>=0) s=s.replace(/\.?0+$/,'');
+  if(s==='-0') s='0';
+  return s;
+}
+function fmt(x,unit){
+  if(!isFinite(x)) return '—';
+  if(Math.abs(x)<1e-12) return '0 '+unit;
+  var pre=[[1e9,'G'],[1e6,'M'],[1e3,'k'],[1,''],[1e-3,'m'],[1e-6,'µ'],[1e-9,'n'],[1e-12,'p']];
+  for(var k=0;k<pre.length;k++){ if(Math.abs(x)>=pre[k][0]*0.9995) return trim3(x/pre[k][0])+' '+pre[k][1]+unit; }
+  return x.toExponential(2)+' '+unit;
+}
+function sub(n){return esc(n.replace(/^([A-Za-z]+)(\d+)$/,'$1<sub>$2</sub>')).replace(/&lt;sub&gt;/g,'<sub>').replace(/&lt;\/sub&gt;/g,'</sub>');}
+function vsym(node){return 'V<sub>'+esc(node)+'</sub>';}
+function signed(x,unit){return (x<0?'− ':'+ ')+fmt(Math.abs(x),unit);}
+
+/* ---------- storage ---------- */
+function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos}));}catch(e){}}
+function load(){
+  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};return true;}}catch(e){}
+  return false;
+}
+function applyPreset(p){
+  state.elems=[];
+  for(var i=0;i<p.elems.length;i++){var e=p.elems[i];state.elems.push({name:e[0],type:e[1],n1:e[2],n2:e[3],val:e[4]});}
+  state.ref=p.ref;state.pos={};state.sel=null;
+  renderRows();update();
+}
+
+/* ---------- model ---------- */
+function collect(){
+  var errors=[],elems=[],nodes=[],seen={};
+  for(var i=0;i<state.elems.length;i++){
+    var e=state.elems[i];
+    var n1=(e.n1||'').trim(),n2=(e.n2||'').trim(),name=(e.name||'').trim()||(e.type+(i+1));
+    if(!n1&&!n2&&!e.val) continue;
+    if(!n1||!n2){errors.push(name+'：兩端節點都要填。');continue;}
+    if(n1===n2){errors.push(name+'：兩端不能是同一個節點。');continue;}
+    var v=parseVal(e.val);
+    if(isNaN(v)){errors.push(name+'：數值「'+esc(e.val)+'」無法解析。');continue;}
+    if(e.type==='R'&&v<=0){errors.push(name+'：電阻必須大於 0。');continue;}
+    if(seen[name]){errors.push('元件名稱重複：'+name+'。');}
+    seen[name]=1;
+    elems.push({name:name,type:e.type,n1:n1,n2:n2,val:v});
+    if(nodes.indexOf(n1)<0)nodes.push(n1);
+    if(nodes.indexOf(n2)<0)nodes.push(n2);
+  }
+  return {errors:errors,elems:elems,nodes:nodes};
+}
+function solveLin(A,z){
+  var n=z.length,M=[],i,j,k;
+  for(i=0;i<n;i++)M[i]=A[i].concat([z[i]]);
+  for(k=0;k<n;k++){
+    var p=k;for(i=k+1;i<n;i++)if(Math.abs(M[i][k])>Math.abs(M[p][k]))p=i;
+    if(Math.abs(M[p][k])<1e-13)return null;
+    var t=M[k];M[k]=M[p];M[p]=t;
+    for(i=0;i<n;i++){if(i===k)continue;var f=M[i][k]/M[k][k];if(!f)continue;for(j=k;j<=n;j++)M[i][j]-=f*M[k][j];}
+  }
+  var x=[];for(i=0;i<n;i++)x[i]=M[i][n]/M[i][i];
+  return x;
+}
+function analyze(model){
+  var res={errors:[],V:{},I:{},elems:model.elems,nodes:model.nodes,loops:[]};
+  var nodes=model.nodes,elems=model.elems,ref=state.ref;
+  if(!elems.length){res.errors.push('還沒有元件。');return res;}
+  if(nodes.indexOf(ref)<0){res.errors.push('參考節點「'+esc(ref)+'」不在電路裡。');return res;}
+  /* connectivity + spanning tree (BFS from ref) */
+  var adj={},i,e;
+  for(i=0;i<nodes.length;i++)adj[nodes[i]]=[];
+  for(i=0;i<elems.length;i++){e=elems[i];adj[e.n1].push({to:e.n2,e:e});adj[e.n2].push({to:e.n1,e:e});}
+  var parent={},order=[ref],head=0,inTree={};
+  parent[ref]=null;
+  while(head<order.length){
+    var u=order[head++];
+    for(i=0;i<adj[u].length;i++){var a=adj[u][i];if(parent[a.to]===undefined){parent[a.to]={node:u,e:a.e};inTree[a.e.name]=1;order.push(a.to);}}
+  }
+  var floating=[];for(i=0;i<nodes.length;i++)if(parent[nodes[i]]===undefined)floating.push(nodes[i]);
+  if(floating.length){res.errors.push('節點 '+floating.join('、')+' 沒有連到參考節點。');return res;}
+  /* MNA */
+  var idx={},nn=0;
+  for(i=0;i<nodes.length;i++)if(nodes[i]!==ref)idx[nodes[i]]=nn++;
+  var vs=[];for(i=0;i<elems.length;i++)if(elems[i].type==='V')vs.push(elems[i]);
+  var N=nn+vs.length,A=[],z=[],r,c;
+  for(r=0;r<N;r++){A[r]=[];for(c=0;c<N;c++)A[r][c]=0;z[r]=0;}
+  var ia,ib;
+  for(i=0;i<elems.length;i++){
+    e=elems[i];ia=idx[e.n1];ib=idx[e.n2];
+    if(e.type==='R'){var g=1/e.val;
+      if(ia!==undefined)A[ia][ia]+=g;if(ib!==undefined)A[ib][ib]+=g;
+      if(ia!==undefined&&ib!==undefined){A[ia][ib]-=g;A[ib][ia]-=g;}
+    }else if(e.type==='I'){
+      if(ia!==undefined)z[ia]-=e.val;if(ib!==undefined)z[ib]+=e.val;
+    }
+  }
+  for(i=0;i<vs.length;i++){
+    e=vs[i];ia=idx[e.n1];ib=idx[e.n2];var k=nn+i;
+    if(ia!==undefined){A[ia][k]+=1;A[k][ia]-=1;}
+    if(ib!==undefined){A[ib][k]-=1;A[k][ib]+=1;}
+    z[k]=e.val;
+  }
+  var x=solveLin(A,z);
+  if(!x){res.errors.push('電路無唯一解：可能有電壓源並聯或成迴路、電流源串聯，或懸空的電流源。');return res;}
+  for(i=0;i<nodes.length;i++)res.V[nodes[i]]=(nodes[i]===ref)?0:x[idx[nodes[i]]];
+  for(i=0;i<elems.length;i++){
+    e=elems[i];var d=res.V[e.n1]-res.V[e.n2];
+    if(e.type==='R')res.I[e.name]=d/e.val;
+    else if(e.type==='I')res.I[e.name]=e.val;
+    else res.I[e.name]=x[nn+vs.indexOf(e)];
+  }
+  /* loops from non-tree elements */
+  function pathToRoot(n){var p=[];while(parent[n]){p.push({node:n,via:parent[n].e,up:parent[n].node});n=parent[n].node;}return p;}
+  for(i=0;i<elems.length;i++){
+    e=elems[i];if(inTree[e.name])continue;
+    var pa=pathToRoot(e.n1),pb=pathToRoot(e.n2);
+    while(pa.length&&pb.length&&pa[pa.length-1].node===pb[pb.length-1].node&&pa[pa.length-1].via===pb[pb.length-1].via){pa.pop();pb.pop();}
+    /* loop: n1 -> n2 via e, then n2 -> ... -> LCA -> ... -> n1 via tree */
+    var steps=[{from:e.n1,to:e.n2,e:e}],j;
+    for(j=0;j<pb.length;j++)steps.push({from:pb[j].node,to:pb[j].up,e:pb[j].via});
+    for(j=pa.length-1;j>=0;j--)steps.push({from:pa[j].up,to:pa[j].node,e:pa[j].via});
+    res.loops.push(steps);
+  }
+  return res;
+}
+
+/* ---------- schematic ---------- */
+function placeNodes(nodes){
+  var missing=[],i;
+  for(i=0;i<nodes.length;i++)if(!state.pos[nodes[i]])missing.push(nodes[i]);
+  if(!missing.length)return;
+  var others=[];for(i=0;i<nodes.length;i++)if(nodes[i]!==state.ref)others.push(nodes[i]);
+  var cx=200,cy=150,R=105;
+  if(missing.indexOf(state.ref)>=0)state.pos[state.ref]={x:cx,y:cy+R};
+  for(i=0;i<others.length;i++){
+    if(state.pos[others[i]])continue;
+    var ang=(-180+180*(i+1)/(others.length+1))*Math.PI/180;
+    state.pos[others[i]]={x:cx+R*Math.cos(ang),y:cy+R*Math.sin(ang)};
+  }
+}
+function drawSchem(model,res){
+  var svg=$('schem'),out=[],i,e;
+  var nodes=model.nodes;
+  placeNodes(nodes);
+  var selLoop=null;
+  if(state.sel&&state.sel.type==='loop'&&res&&res.loops[state.sel.i]){selLoop={};for(i=0;i<res.loops[state.sel.i].length;i++)selLoop[res.loops[state.sel.i][i].e.name]=1;}
+  /* group parallel edges */
+  var groups={},list=[];
+  for(i=0;i<model.elems.length;i++){e=model.elems[i];var key=[e.n1,e.n2].sort().join('\u0001');if(!groups[key])groups[key]=[];groups[key].push(e);}
+  for(i=0;i<model.elems.length;i++){
+    e=model.elems[i];var key2=[e.n1,e.n2].sort().join('\u0001'),g=groups[key2],k=g.indexOf(e),cnt=g.length;
+    var P1=state.pos[e.n1],P2=state.pos[e.n2];
+    if(!P1||!P2)continue;
+    var dx=P2.x-P1.x,dy=P2.y-P1.y,len=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/len,uy=dy/len,px=-uy,py=ux;
+    var off=(k-(cnt-1)/2)*44;
+    /* keep parallel-branch offset consistent regardless of n1/n2 order */
+    if(e.n1>e.n2)off=-off;
+    var cx=(P1.x+P2.x)/2+px*off,cy=(P1.y+P2.y)/2+py*off;
+    var mx=(P1.x+2*cx+P2.x)/4,my=(P1.y+2*cy+P2.y)/4;
+    var ang=Math.atan2(uy,ux)*180/Math.PI;
+    var hl=selLoop&&selLoop[e.name];
+    var d='M'+P1.x.toFixed(1)+' '+P1.y.toFixed(1)+' Q'+cx.toFixed(1)+' '+cy.toFixed(1)+' '+P2.x.toFixed(1)+' '+P2.y.toFixed(1);
+    if(hl)out.push('<path d="'+d+'" fill="none" stroke="var(--sel)" stroke-width="7" stroke-linecap="round" opacity=".55"/>');
+    out.push('<path d="'+d+'" fill="none" stroke="var(--ink)" stroke-width="1.6"/>');
+    var sym='<g transform="translate('+mx.toFixed(1)+' '+my.toFixed(1)+') rotate('+ang.toFixed(1)+')" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)">';
+    if(e.type==='R'){sym+='<rect x="-16" y="-7" width="32" height="14" rx="1"/>';}
+    else if(e.type==='V'){sym+='<circle r="13"/><line x1="-9" y1="0" x2="-3" y2="0"/><line x1="3" y1="0" x2="9" y2="0"/><line x1="6" y1="-3" x2="6" y2="3"/>';}
+    else{sym+='<circle r="13"/><line x1="-8" y1="0" x2="5" y2="0"/><polygon points="4,-4 10,0 4,4" fill="var(--ink)" stroke="none"/>';}
+    sym+='</g>';out.push(sym);
+    /* side for labels: the side away from curve center, i.e. -sign(off) or default */
+    var s=off>0?1:-1;
+    var lx=mx+px*(-s*22),ly=my+py*(-s*22);
+    var unit=TYPES[e.type].unit;
+    out.push('<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--ink)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(e.name)+' '+esc(fmt(e.val,unit))+'</text>');
+    if(res&&res.I&&isFinite(res.I[e.name])){
+      var I=res.I[e.name],dir=I>=0?1:-1;
+      var ax=mx+ux*30*dir,ay=my+uy*30*dir,aang=(dir>0?ang:ang+180);
+      out.push('<g transform="translate('+ax.toFixed(1)+' '+ay.toFixed(1)+') rotate('+aang.toFixed(1)+')"><polygon points="-6,-5 4,0 -6,5" fill="var(--i)"/></g>');
+      var ix=mx+px*(s*22),iy=my+py*(s*22);
+      out.push('<text x="'+ix.toFixed(1)+'" y="'+iy.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--i)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(fmt(Math.abs(I),'A'))+'</text>');
+    }
+  }
+  for(i=0;i<nodes.length;i++){
+    var n=nodes[i],P=state.pos[n],isRef=n===state.ref;
+    var selN=state.sel&&state.sel.type==='node'&&state.sel.name===n;
+    var gnd='';
+    if(isRef)gnd='<g stroke="var(--ink)" stroke-width="1.6"><line x1="0" y1="7" x2="0" y2="16"/><line x1="-11" y1="16" x2="11" y2="16"/><line x1="-7" y1="20" x2="7" y2="20"/><line x1="-3" y1="24" x2="3" y2="24"/></g>';
+    out.push('<g class="nd" data-node="'+esc(n)+'" transform="translate('+P.x.toFixed(1)+' '+P.y.toFixed(1)+')" style="cursor:grab">'+gnd+
+      (selN?'<circle r="12" fill="none" stroke="var(--sel)" stroke-width="3"/>':'')+
+      '<circle r="7" fill="var(--v)" stroke="var(--card)" stroke-width="2"/>'+
+      '<text y="-12" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(n)+'</text>'+
+      (res&&res.V&&isFinite(res.V[n])?'<text y="'+(isRef?36:22)+'" text-anchor="middle" class="mono" font-size="11" fill="var(--v)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(fmt(res.V[n],'V'))+'</text>':'')+
+      '<circle r="18" fill="transparent"/></g>');
+  }
+  if(!nodes.length)out.push('<text x="200" y="150" text-anchor="middle" fill="var(--ink2)" font-size="14">新增元件或選一個範例電路</text>');
+  svg.innerHTML=out.join('');
+}
+/* drag */
+(function(){
+  var svg=$('schem'),drag=null,moved=false;
+  function pt(ev){var p=svg.createSVGPoint();p.x=ev.clientX;p.y=ev.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
+  function findNode(t){while(t&&t!==svg){if(t.getAttribute&&t.getAttribute('data-node')!==null)return t.getAttribute('data-node');t=t.parentNode;}return null;}
+  svg.addEventListener('pointerdown',function(ev){var n=findNode(ev.target);if(n===null)return;drag=n;moved=false;try{svg.setPointerCapture(ev.pointerId);}catch(e){}ev.preventDefault();});
+  svg.addEventListener('pointermove',function(ev){if(!drag)return;var p=pt(ev);moved=true;state.pos[drag]={x:Math.max(24,Math.min(376,p.x)),y:Math.max(24,Math.min(270,p.y))};drawSchem(lastModel,lastRes);});
+  function end(ev){if(!drag)return;if(!moved){state.sel=(state.sel&&state.sel.type==='node'&&state.sel.name===drag)?null:{type:'node',name:drag};renderResults(lastModel,lastRes);}drag=null;save();drawSchem(lastModel,lastRes);}
+  svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
+})();
+
+/* ---------- editor ---------- */
+function renderRows(){
+  var tb=$('rows'),html='',i;
+  for(i=0;i<state.elems.length;i++){
+    var e=state.elems[i];
+    html+='<tr data-i="'+i+'">'+
+      '<td><input class="name mono" data-f="name" value="'+esc(e.name||'')+'" placeholder="R1"></td>'+
+      '<td><select data-f="type"><option value="R"'+(e.type==='R'?' selected':'')+'>電阻</option><option value="V"'+(e.type==='V'?' selected':'')+'>電壓源</option><option value="I"'+(e.type==='I'?' selected':'')+'>電流源</option></select></td>'+
+      '<td><input class="node mono" data-f="n1" value="'+esc(e.n1||'')+'" placeholder="A"></td>'+
+      '<td><input class="node mono" data-f="n2" value="'+esc(e.n2||'')+'" placeholder="B"></td>'+
+      '<td><input class="val mono" data-f="val" value="'+esc(e.val||'')+'" placeholder="'+TYPES[e.type].unit+'" inputmode="decimal"></td>'+
+      '<td><button class="x" data-del="'+i+'" aria-label="刪除">×</button></td></tr>';
+  }
+  tb.innerHTML=html;
+}
+$('rows').addEventListener('input',function(ev){
+  var t=ev.target,tr=t.parentNode;while(tr&&tr.tagName!=='TR')tr=tr.parentNode;if(!tr)return;
+  var i=+tr.getAttribute('data-i'),f=t.getAttribute('data-f');if(!f)return;
+  state.elems[i][f]=t.value;
+  if(f==='type'){var v=tr.querySelector('input[data-f="val"]');if(v)v.placeholder=TYPES[t.value].unit;}
+  update();
+});
+$('rows').addEventListener('change',function(ev){if(ev.target.tagName==='SELECT'){var tr=ev.target.parentNode.parentNode;state.elems[+tr.getAttribute('data-i')].type=ev.target.value;renderRows();update();}});
+$('rows').addEventListener('click',function(ev){var d=ev.target.getAttribute&&ev.target.getAttribute('data-del');if(d===null||d===undefined)return;state.elems.splice(+d,1);renderRows();update();});
+$('add').addEventListener('click',function(){
+  var type='R',cnt=0,i;for(i=0;i<state.elems.length;i++)if(state.elems[i].type===type)cnt++;
+  state.elems.push({name:'R'+(cnt+1),type:type,n1:'',n2:'',val:''});
+  renderRows();update();
+  var ins=$('rows').querySelectorAll('input[data-f="n1"]');if(ins.length)ins[ins.length-1].focus();
+});
+$('clear').addEventListener('click',function(){state.elems=[];state.pos={};state.sel=null;renderRows();update();});
+$('ref').addEventListener('change',function(){state.ref=$('ref').value;state.sel=null;update();});
+function renderRef(nodes){
+  var sel=$('ref'),html='',i;
+  if(nodes.indexOf(state.ref)<0&&nodes.length)state.ref=nodes.indexOf('GND')>=0?'GND':nodes[0];
+  for(i=0;i<nodes.length;i++)html+='<option value="'+esc(nodes[i])+'"'+(nodes[i]===state.ref?' selected':'')+'>'+esc(nodes[i])+'</option>';
+  if(!nodes.length)html='<option>—</option>';
+  sel.innerHTML=html;
+}
+(function(){var html='',i;for(i=0;i<PRESETS.length;i++)html+='<button class="small" data-p="'+i+'">'+esc(PRESETS[i].name)+'</button>';$('presets').innerHTML=html;
+  $('presets').addEventListener('click',function(ev){var p=ev.target.getAttribute&&ev.target.getAttribute('data-p');if(p===null||p===undefined)return;applyPreset(PRESETS[+p]);});})();
+
+/* ---------- results ---------- */
+var lastModel={elems:[],nodes:[]},lastRes=null;
+function termsKCL(node,res){
+  var sym=[],num=[],sum=0,i,e;
+  for(i=0;i<res.elems.length;i++){
+    e=res.elems[i];if(e.n1!==node&&e.n2!==node)continue;
+    var atN1=e.n1===node,other=atN1?e.n2:e.n1,I=res.I[e.name]*(atN1?1:-1);
+    if(e.type==='R'){sym.push('('+vsym(node)+' − '+vsym(other)+')/'+sub(e.name));}
+    else{sym.push((atN1?'':'−')+'I<sub>'+esc(e.name)+'</sub>');}
+    num.push(signed(I,'A'));sum+=I;
+  }
+  return {sym:sym,num:num,sum:sum};
+}
+function termsKVL(steps,res){
+  var sym=[],num=[],sum=0,i;
+  for(i=0;i<steps.length;i++){
+    var s=steps[i],e=s.e,fwd=s.from===e.n1,drop=res.V[s.from]-res.V[s.to];
+    if(e.type==='R')sym.push((fwd?'':'−')+'I<sub>'+esc(e.name)+'</sub>·'+sub(e.name));
+    else if(e.type==='V')sym.push((fwd?'−':'+')+esc(fmt(e.val,'V')));
+    else sym.push((fwd?'':'−')+'V<sub>'+esc(e.name)+'</sub>');
+    num.push(signed(drop,'V'));sum+=drop;
+  }
+  return {sym:sym,num:num,sum:sum};
+}
+function renderResults(model,res){
+  var i,html;
+  var errs=(model.errors||[]).concat(res?res.errors:[]);
+  $('notice').innerHTML=errs.length?'<div class="notice">無法完成求解：<ul><li>'+errs.join('</li><li>')+'</li></ul></div>':'';
+  var ok=res&&!res.errors.length&&!(model.errors||[]).length;
+  /* node voltages */
+  if(ok){
+    html='';
+    for(i=0;i<res.nodes.length;i++){var n=res.nodes[i],on=state.sel&&state.sel.type==='node'&&state.sel.name===n;
+      html+='<button class="chip'+(on?' on':'')+'" data-node="'+esc(n)+'"><b>'+esc(n)+(n===state.ref?'（參考）':'')+'</b><span class="mono">'+esc(fmt(res.V[n],'V'))+'</span></button>';}
+    $('vnodes').innerHTML=html;
+  }else $('vnodes').innerHTML='<span class="empty">尚未解出。</span>';
+  /* element table */
+  var tb=$('etable').getElementsByTagName('tbody')[0];
+  if(ok){html='';
+    for(i=0;i<res.elems.length;i++){var e=res.elems[i],d=res.V[e.n1]-res.V[e.n2],I=res.I[e.name];
+      html+='<tr><td>'+sub(e.name)+' <span class="mono" style="color:var(--ink2);font-size:12px">'+esc(e.n1)+'→'+esc(e.n2)+' · '+esc(fmt(e.val,TYPES[e.type].unit))+'</span></td>'+
+        '<td class="num mono">'+esc(fmt(d,'V'))+'</td><td class="num mono">'+esc(fmt(I,'A'))+'</td><td class="num mono">'+esc(fmt(d*I,'W'))+'</td></tr>';}
+    tb.innerHTML=html;
+  }else tb.innerHTML='';
+  /* KCL */
+  if(ok){html='';
+    for(i=0;i<res.nodes.length;i++){var nd=res.nodes[i];if(nd===state.ref)continue;
+      var t=termsKCL(nd,res),onN=state.sel&&state.sel.type==='node'&&state.sel.name===nd;
+      html+='<div class="eq'+(onN?' on':'')+'" data-node="'+esc(nd)+'"><h3>節點 '+esc(nd)+'</h3>'+
+        '<div class="l mono sym">'+t.sym.join(' + ')+' = 0</div>'+
+        '<div class="l mono numv">'+t.num.join(' ')+' = <span class="'+(Math.abs(t.sum)<1e-9?'ok':'bad')+'">'+esc(fmt(t.sum,'A'))+' ✓</span></div></div>';}
+    $('kcl').innerHTML=html||'<span class="empty">只有參考節點，沒有需要列 KCL 的節點。</span>';
+  }else $('kcl').innerHTML='<span class="empty">尚未解出。</span>';
+  /* KVL */
+  if(ok){html='';
+    for(i=0;i<res.loops.length;i++){var st=res.loops[i],path=[st[0].from],j;for(j=0;j<st.length;j++)path.push(st[j].to);
+      var k=termsKVL(st,res),onL=state.sel&&state.sel.type==='loop'&&state.sel.i===i;
+      html+='<div class="eq'+(onL?' on':'')+'" data-loop="'+i+'"><h3>迴路 '+(i+1)+'：<span class="mono" style="font-weight:500">'+esc(path.join(' → '))+'</span></h3>'+
+        '<div class="l mono sym">'+k.sym.join(' + ').replace(/\+ −/g,'− ')+' = 0</div>'+
+        '<div class="l mono numv">'+k.num.join(' ')+' = <span class="'+(Math.abs(k.sum)<1e-9?'ok':'bad')+'">'+esc(fmt(k.sum,'V'))+' ✓</span></div></div>';}
+    $('kvl').innerHTML=html||'<span class="empty">沒有封閉迴路。</span>';
+  }else $('kvl').innerHTML='<span class="empty">尚未解出。</span>';
+}
+function pick(ev,attr,mk){var t=ev.target;while(t&&t!==document.body){if(t.getAttribute&&t.getAttribute(attr)!==null){var v=t.getAttribute(attr),ns=mk(v);state.sel=(JSON.stringify(ns)===JSON.stringify(state.sel))?null:ns;renderResults(lastModel,lastRes);drawSchem(lastModel,lastRes);return;}t=t.parentNode;}}
+$('vnodes').addEventListener('click',function(ev){pick(ev,'data-node',function(v){return {type:'node',name:v};});});
+$('kcl').addEventListener('click',function(ev){pick(ev,'data-node',function(v){return {type:'node',name:v};});});
+$('kvl').addEventListener('click',function(ev){pick(ev,'data-loop',function(v){return {type:'loop',i:+v};});});
+
+/* ---------- main ---------- */
+function update(){
+  if(timer)clearTimeout(timer);
+  timer=setTimeout(function(){
+    var model=collect();renderRef(model.nodes);
+    /* drop positions of nodes that vanished */
+    var p={},i;for(i=0;i<model.nodes.length;i++)if(state.pos[model.nodes[i]])p[model.nodes[i]]=state.pos[model.nodes[i]];state.pos=p;
+    var res=model.errors.length?null:analyze(model);
+    if(model.errors.length)res={errors:[],V:{},I:{},elems:[],nodes:[],loops:[]};
+    lastModel=model;lastRes=res;
+    if(state.sel&&state.sel.type==='loop'&&(!res||!res.loops[state.sel.i]))state.sel=null;
+    if(state.sel&&state.sel.type==='node'&&model.nodes.indexOf(state.sel.name)<0)state.sel=null;
+    drawSchem(model,res.errors.length||model.errors.length?null:res);
+    renderResults(model,res);
+    save();
+  },120);
+}
+if(!load())applyPreset(PRESETS[1]);else{renderRows();update();}
+})();
+</script>
+<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
+</body>
+</html>
