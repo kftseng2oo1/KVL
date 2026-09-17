@@ -103,6 +103,7 @@ sub{font-size:.75em}
 <section>
   <h2>電路圖</h2>
   <div class="presets" id="presets"></div>
+  <label class="hint" style="display:block;margin:0 0 8px"><input type="checkbox" id="expand" style="width:auto;min-height:0;vertical-align:middle;margin-right:6px">接地分開畫（每個接參考節點的元件各自接地）</label>
   <svg id="schem" class="schem" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" aria-label="電路示意圖"></svg>
   <div class="legend"><span><i style="background:var(--v)"></i>節點電壓</span><span><i style="background:var(--i)"></i>支路電流（箭頭為實際流向）</span><span><i style="background:var(--sel)"></i>目前選取</span></div>
   <p class="hint">拖曳節點可調整版面。點節點看它的 KCL，點迴路看它在圖上的路徑。</p>
@@ -155,7 +156,7 @@ sub{font-size:.75em}
 (function(){
 'use strict';
 var TYPES={R:{label:'電阻',unit:'Ω'},V:{label:'電壓源',unit:'V'},I:{label:'電流源',unit:'A'}};
-var state={elems:[],ref:'GND',pos:{},sel:null};
+var state={elems:[],ref:'GND',pos:{},sel:null,expand:true};
 var $=function(id){return document.getElementById(id);};
 var timer=null;
 
@@ -194,9 +195,9 @@ function vsym(node){return 'V<sub>'+esc(node)+'</sub>';}
 function signed(x,unit){return (x<0?'− ':'+ ')+fmt(Math.abs(x),unit);}
 
 /* ---------- storage ---------- */
-function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos}));}catch(e){}}
+function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos,expand:state.expand}));}catch(e){}}
 function load(){
-  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};return true;}}catch(e){}
+  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};state.expand=s.expand!==false;return true;}}catch(e){}
   return false;
 }
 function applyPreset(p){
@@ -308,35 +309,58 @@ function placeNodes(nodes){
   if(!missing.length)return;
   var others=[];for(i=0;i<nodes.length;i++)if(nodes[i]!==state.ref)others.push(nodes[i]);
   var cx=200,cy=150,R=105;
-  if(missing.indexOf(state.ref)>=0)state.pos[state.ref]={x:cx,y:cy+R};
+  if(missing.indexOf(state.ref)>=0)state.pos[state.ref]={x:cx,y:state.expand?40:cy+R};
   for(i=0;i<others.length;i++){
     if(state.pos[others[i]])continue;
-    var ang=(-180+180*(i+1)/(others.length+1))*Math.PI/180;
-    state.pos[others[i]]={x:cx+R*Math.cos(ang),y:cy+R*Math.sin(ang)};
+    if(state.expand){
+      state.pos[others[i]]={x:Math.round(400*(i+1)/(others.length+1)),y:others.length>3&&i%2?150:90};
+    }else{
+      var ang=(-180+180*(i+1)/(others.length+1))*Math.PI/180;
+      state.pos[others[i]]={x:cx+R*Math.cos(ang),y:cy+R*Math.sin(ang)};
+    }
   }
 }
+var GND_SYM='<g stroke="var(--ink)" stroke-width="1.6"><line x1="0" y1="0" x2="0" y2="9"/><line x1="-11" y1="9" x2="11" y2="9"/><line x1="-7" y1="13" x2="7" y2="13"/><line x1="-3" y1="17" x2="3" y2="17"/></g>';
 function drawSchem(model,res){
-  var svg=$('schem'),out=[],i,e;
+  var svg=$('schem'),out=[],i,e,ref=state.ref;
   var nodes=model.nodes;
   placeNodes(nodes);
+  var expand=state.expand&&nodes.indexOf(ref)>=0;
   var selLoop=null;
   if(state.sel&&state.sel.type==='loop'&&res&&res.loops[state.sel.i]){selLoop={};for(i=0;i<res.loops[state.sel.i].length;i++)selLoop[res.loops[state.sel.i][i].e.name]=1;}
-  /* group parallel edges */
-  var groups={},list=[];
-  for(i=0;i<model.elems.length;i++){e=model.elems[i];var key=[e.n1,e.n2].sort().join('\u0001');if(!groups[key])groups[key]=[];groups[key].push(e);}
+  /* ground stubs: one per element touching ref */
+  var stub={},maxY=300;
+  if(expand){
+    var byNode={};
+    for(i=0;i<model.elems.length;i++){e=model.elems[i];if(e.n1===ref||e.n2===ref){var o=e.n1===ref?e.n2:e.n1;if(o===ref)continue;(byNode[o]=byNode[o]||[]).push(e);}}
+    for(var nm in byNode){var arr=byNode[nm],P=state.pos[nm];if(!P)continue;
+      for(i=0;i<arr.length;i++){var sx=P.x+(i-(arr.length-1)/2)*104;sx=Math.max(24,Math.min(376,sx));stub[arr[i].name]={x:sx,y:P.y+110};maxY=Math.max(maxY,P.y+110+50);}}
+  }
+  for(i=0;i<nodes.length;i++){var pp=state.pos[nodes[i]];if(pp)maxY=Math.max(maxY,pp.y+50);}
+  svg.setAttribute('viewBox','0 0 400 '+Math.round(maxY));
+  /* group parallel edges (non-stub only) */
+  var groups={};
+  for(i=0;i<model.elems.length;i++){e=model.elems[i];if(stub[e.name])continue;var key=[e.n1,e.n2].sort().join('\u0001');if(!groups[key])groups[key]=[];groups[key].push(e);}
   for(i=0;i<model.elems.length;i++){
-    e=model.elems[i];var key2=[e.n1,e.n2].sort().join('\u0001'),g=groups[key2],k=g.indexOf(e),cnt=g.length;
-    var P1=state.pos[e.n1],P2=state.pos[e.n2];
+    e=model.elems[i];
+    var P1,P2,off=0,isStub=!!stub[e.name];
+    var busFrom=null;
+    if(isStub){var G0=stub[e.name],PN=state.pos[e.n1===ref?e.n2:e.n1];var top={x:G0.x,y:PN.y};busFrom=PN;
+      if(e.n1===ref){P1=G0;P2=top;}else{P1=top;P2=G0;}}
+    else{
+      var key2=[e.n1,e.n2].sort().join('\u0001'),g=groups[key2],k=g.indexOf(e),cnt=g.length;
+      P1=state.pos[e.n1];P2=state.pos[e.n2];
+      off=(k-(cnt-1)/2)*64;
+      if(e.n1>e.n2)off=-off;
+    }
     if(!P1||!P2)continue;
     var dx=P2.x-P1.x,dy=P2.y-P1.y,len=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/len,uy=dy/len,px=-uy,py=ux;
-    var off=(k-(cnt-1)/2)*44;
-    /* keep parallel-branch offset consistent regardless of n1/n2 order */
-    if(e.n1>e.n2)off=-off;
     var cx=(P1.x+P2.x)/2+px*off,cy=(P1.y+P2.y)/2+py*off;
     var mx=(P1.x+2*cx+P2.x)/4,my=(P1.y+2*cy+P2.y)/4;
     var ang=Math.atan2(uy,ux)*180/Math.PI;
     var hl=selLoop&&selLoop[e.name];
     var d='M'+P1.x.toFixed(1)+' '+P1.y.toFixed(1)+' Q'+cx.toFixed(1)+' '+cy.toFixed(1)+' '+P2.x.toFixed(1)+' '+P2.y.toFixed(1);
+    if(busFrom){var G1=stub[e.name];d='M'+busFrom.x.toFixed(1)+' '+busFrom.y.toFixed(1)+' L'+G1.x.toFixed(1)+' '+busFrom.y.toFixed(1)+' L'+G1.x.toFixed(1)+' '+G1.y.toFixed(1);}
     if(hl)out.push('<path d="'+d+'" fill="none" stroke="var(--sel)" stroke-width="7" stroke-linecap="round" opacity=".55"/>');
     out.push('<path d="'+d+'" fill="none" stroke="var(--ink)" stroke-width="1.6"/>');
     var sym='<g transform="translate('+mx.toFixed(1)+' '+my.toFixed(1)+') rotate('+ang.toFixed(1)+')" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)">';
@@ -344,31 +368,37 @@ function drawSchem(model,res){
     else if(e.type==='V'){sym+='<circle r="13"/><line x1="-9" y1="0" x2="-3" y2="0"/><line x1="3" y1="0" x2="9" y2="0"/><line x1="6" y1="-3" x2="6" y2="3"/>';}
     else{sym+='<circle r="13"/><line x1="-8" y1="0" x2="5" y2="0"/><polygon points="4,-4 10,0 4,4" fill="var(--ink)" stroke="none"/>';}
     sym+='</g>';out.push(sym);
-    /* side for labels: the side away from curve center, i.e. -sign(off) or default */
+    /* label side: outward from curve; name one side, current the other */
     var s=off>0?1:-1;
-    var lx=mx+px*(-s*22),ly=my+py*(-s*22);
+    /* for horizontal-ish wires put the name above */
+    if(off===0&&Math.abs(ux)>Math.abs(uy))s=(py<0)?-1:1;
+    var lx=mx+px*(-s*24),ly=my+py*(-s*24);
     var unit=TYPES[e.type].unit;
-    out.push('<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--ink)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(e.name)+' '+esc(fmt(e.val,unit))+'</text>');
+    var TS='style="paint-order:stroke;stroke:var(--paper);stroke-width:4px"';
+    out.push('<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--ink)" '+TS+'>'+esc(e.name)+' '+esc(fmt(e.val,unit))+'</text>');
     if(res&&res.I&&isFinite(res.I[e.name])){
       var I=res.I[e.name],dir=I>=0?1:-1;
       var ax=mx+ux*30*dir,ay=my+uy*30*dir,aang=(dir>0?ang:ang+180);
       out.push('<g transform="translate('+ax.toFixed(1)+' '+ay.toFixed(1)+') rotate('+aang.toFixed(1)+')"><polygon points="-6,-5 4,0 -6,5" fill="var(--i)"/></g>');
-      var ix=mx+px*(s*22),iy=my+py*(s*22);
-      out.push('<text x="'+ix.toFixed(1)+'" y="'+iy.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--i)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(fmt(Math.abs(I),'A'))+'</text>');
+      var ix=mx+px*(s*24),iy=my+py*(s*24);
+      out.push('<text x="'+ix.toFixed(1)+'" y="'+iy.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--i)" '+TS+'>'+esc(fmt(Math.abs(I),'A'))+'</text>');
     }
+    if(isStub){var G=stub[e.name];out.push('<g data-node="'+esc(ref)+'" data-fixed="1" transform="translate('+G.x.toFixed(1)+' '+G.y.toFixed(1)+')">'+GND_SYM+'<circle r="16" cy="8" fill="transparent"/></g>');}
   }
   for(i=0;i<nodes.length;i++){
-    var n=nodes[i],P=state.pos[n],isRef=n===state.ref;
+    var n=nodes[i],P=state.pos[n],isRef=n===ref;
+    if(isRef&&expand)continue;
     var selN=state.sel&&state.sel.type==='node'&&state.sel.name===n;
-    var gnd='';
-    if(isRef)gnd='<g stroke="var(--ink)" stroke-width="1.6"><line x1="0" y1="7" x2="0" y2="16"/><line x1="-11" y1="16" x2="11" y2="16"/><line x1="-7" y1="20" x2="7" y2="20"/><line x1="-3" y1="24" x2="3" y2="24"/></g>';
+    var gnd=isRef?'<g transform="translate(0 7)">'+GND_SYM+'</g>':'';
+    var TS2='style="paint-order:stroke;stroke:var(--paper);stroke-width:4px"';
     out.push('<g class="nd" data-node="'+esc(n)+'" transform="translate('+P.x.toFixed(1)+' '+P.y.toFixed(1)+')" style="cursor:grab">'+gnd+
       (selN?'<circle r="12" fill="none" stroke="var(--sel)" stroke-width="3"/>':'')+
       '<circle r="7" fill="var(--v)" stroke="var(--card)" stroke-width="2"/>'+
-      '<text y="-12" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(n)+'</text>'+
-      (res&&res.V&&isFinite(res.V[n])?'<text y="'+(isRef?36:22)+'" text-anchor="middle" class="mono" font-size="11" fill="var(--v)" style="paint-order:stroke;stroke:var(--paper);stroke-width:4px">'+esc(fmt(res.V[n],'V'))+'</text>':'')+
+      '<text y="-12" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)" '+TS2+'>'+esc(n)+'</text>'+
+      (res&&res.V&&isFinite(res.V[n])?'<text y="'+(isRef?36:22)+'" text-anchor="middle" class="mono" font-size="11" fill="var(--v)" '+TS2+'>'+esc(fmt(res.V[n],'V'))+'</text>':'')+
       '<circle r="18" fill="transparent"/></g>');
   }
+  if(expand&&state.sel&&state.sel.type==='node'&&state.sel.name===ref)out.push('<text x="200" y="'+(maxY-12)+'" text-anchor="middle" font-size="12" fill="var(--sel)">已選取參考節點 '+esc(ref)+'（0 V）</text>');
   if(!nodes.length)out.push('<text x="200" y="150" text-anchor="middle" fill="var(--ink2)" font-size="14">新增元件或選一個範例電路</text>');
   svg.innerHTML=out.join('');
 }
@@ -376,9 +406,10 @@ function drawSchem(model,res){
 (function(){
   var svg=$('schem'),drag=null,moved=false;
   function pt(ev){var p=svg.createSVGPoint();p.x=ev.clientX;p.y=ev.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
-  function findNode(t){while(t&&t!==svg){if(t.getAttribute&&t.getAttribute('data-node')!==null)return t.getAttribute('data-node');t=t.parentNode;}return null;}
+  var fixed=false;
+  function findNode(t){while(t&&t!==svg){if(t.getAttribute&&t.getAttribute('data-node')!==null){fixed=!!t.getAttribute('data-fixed');return t.getAttribute('data-node');}t=t.parentNode;}return null;}
   svg.addEventListener('pointerdown',function(ev){var n=findNode(ev.target);if(n===null)return;drag=n;moved=false;try{svg.setPointerCapture(ev.pointerId);}catch(e){}ev.preventDefault();});
-  svg.addEventListener('pointermove',function(ev){if(!drag)return;var p=pt(ev);moved=true;state.pos[drag]={x:Math.max(24,Math.min(376,p.x)),y:Math.max(24,Math.min(270,p.y))};drawSchem(lastModel,lastRes);});
+  svg.addEventListener('pointermove',function(ev){if(!drag||fixed)return;var p=pt(ev);moved=true;state.pos[drag]={x:Math.max(24,Math.min(376,p.x)),y:Math.max(24,Math.min(270,p.y))};drawSchem(lastModel,lastRes);});
   function end(ev){if(!drag)return;if(!moved){state.sel=(state.sel&&state.sel.type==='node'&&state.sel.name===drag)?null:{type:'node',name:drag};renderResults(lastModel,lastRes);}drag=null;save();drawSchem(lastModel,lastRes);}
   svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
 })();
@@ -414,6 +445,7 @@ $('add').addEventListener('click',function(){
   var ins=$('rows').querySelectorAll('input[data-f="n1"]');if(ins.length)ins[ins.length-1].focus();
 });
 $('clear').addEventListener('click',function(){state.elems=[];state.pos={};state.sel=null;renderRows();update();});
+$('expand').addEventListener('change',function(){state.expand=$('expand').checked;state.pos={};update();});
 $('ref').addEventListener('change',function(){state.ref=$('ref').value;state.sel=null;update();});
 function renderRef(nodes){
   var sel=$('ref'),html='',i;
@@ -510,7 +542,8 @@ function update(){
     save();
   },120);
 }
-if(!load())applyPreset(PRESETS[1]);else{renderRows();update();}
+$('expand').checked=state.expand;
+if(!load())applyPreset(PRESETS[1]);else{$('expand').checked=state.expand;renderRows();update();}
 })();
 </script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
