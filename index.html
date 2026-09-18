@@ -64,7 +64,7 @@ input:focus,select:focus{outline:2px solid var(--v);border-color:transparent}
 .editor input.name{width:64px}
 .editor input.node{width:64px}
 .editor input.val{width:84px}
-.editor select{width:84px}
+.editor select{width:110px}
 .editor .x{width:34px;padding:0;text-align:center;border:none;background:none;font-size:18px;color:var(--ink2)}
 .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .tools label{color:var(--ink2);font-size:13px}
@@ -104,16 +104,17 @@ sub{font-size:.75em}
   <h2>電路圖</h2>
   <div class="presets" id="presets"></div>
   <label class="hint" style="display:block;margin:0 0 8px"><input type="checkbox" id="expand" style="width:auto;min-height:0;vertical-align:middle;margin-right:6px">接地分開畫（每個接參考節點的元件各自接地）</label>
+  <div class="presets"><button id="relayout" class="small">重排版面</button></div>
   <svg id="schem" class="schem" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" aria-label="電路示意圖"></svg>
   <div class="legend"><span><i style="background:var(--v)"></i>節點電壓</span><span><i style="background:var(--i)"></i>支路電流（箭頭為實際流向）</span><span><i style="background:var(--sel)"></i>目前選取</span></div>
-  <p class="hint">拖曳節點可調整版面。點節點看它的 KCL，點迴路看它在圖上的路徑。</p>
+  <p class="hint">節點與元件都可以拖曳：拖元件會讓線經過放下的位置（可拉直或拉彎）。點節點看它的 KCL，點迴路看它在圖上的路徑。</p>
 </section>
 
 <section>
   <h2>元件</h2>
   <div class="tablewrap">
   <table class="editor">
-    <thead><tr><th>名稱</th><th>類型</th><th>節點1</th><th>節點2</th><th>數值</th><th></th></tr></thead>
+    <thead><tr><th>名稱</th><th>類型</th><th>節點1</th><th>節點2</th><th>數值</th><th>控制</th><th></th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
   </div>
@@ -122,7 +123,7 @@ sub{font-size:.75em}
     <label>參考節點（0 V）<select id="ref"></select></label>
     <button id="clear" class="small danger">清空</button>
   </div>
-  <p class="hint">數值可加字尾 k、M、m、u、n（如 4.7k、2m）。<br>電壓源：節點1 為 −、節點2 為 +。電流源：電流從節點1 經源流向節點2。電流與電壓均以「節點1 → 節點2」為正方向。</p>
+  <p class="hint">數值可加字尾 k、M、m、u、n（如 4.7k、2m）。<br>電壓源／E／H：節點1 為 −、節點2 為 +。電流源／G／F：電流從節點1 經源流向節點2。電流與電壓均以「節點1 → 節點2」為正方向。<br>相依電源的「控制」欄：E、G 填兩個節點 <span class="mono">A,B</span>，代表控制電壓 V<sub>A</sub>−V<sub>B</sub>；F、H 填元件名稱（R、V、E、H、I 皆可），代表流經該元件由節點1到節點2的電流。數值為增益：E 倍數、G 轉導 (S)、F 倍數、H 轉阻 (Ω)。</p>
 </section>
 
 <div id="notice"></div>
@@ -155,8 +156,11 @@ sub{font-size:.75em}
 <script>
 (function(){
 'use strict';
-var TYPES={R:{label:'電阻',unit:'Ω'},V:{label:'電壓源',unit:'V'},I:{label:'電流源',unit:'A'}};
-var state={elems:[],ref:'GND',pos:{},sel:null,expand:true};
+var TYPES={R:{label:'電阻',unit:'Ω'},V:{label:'電壓源',unit:'V'},I:{label:'電流源',unit:'A'},
+ E:{label:'VCVS 壓控壓源',unit:'V/V',ctl:'V'},G:{label:'VCCS 壓控流源',unit:'S',ctl:'V'},
+ F:{label:'CCCS 流控流源',unit:'A/A',ctl:'I'},H:{label:'CCVS 流控壓源',unit:'Ω',ctl:'I'}};
+var VTYPE={V:1,E:1,H:1};
+var state={elems:[],ref:'GND',pos:{},epos:{},sel:null,expand:true};
 var $=function(id){return document.getElementById(id);};
 var timer=null;
 
@@ -164,7 +168,8 @@ var PRESETS=[
  {name:'分壓電路',ref:'GND',elems:[['V1','V','GND','A','12'],['R1','R','A','B','1k'],['R2','R','B','GND','2k']]},
  {name:'雙電源雙迴路',ref:'GND',elems:[['V1','V','GND','A','12'],['R1','R','A','B','4'],['R2','R','B','GND','6'],['R3','R','B','C','2'],['V2','V','GND','C','6']]},
  {name:'惠斯登電橋',ref:'GND',elems:[['V1','V','GND','T','10'],['R1','R','T','L','100'],['R2','R','T','P','200'],['R3','R','L','GND','100'],['R4','R','P','GND','220'],['R5','R','L','P','50']]},
- {name:'電流源網路',ref:'GND',elems:[['I1','I','GND','A','2m'],['R1','R','A','GND','1k'],['R2','R','A','B','2.2k'],['R3','R','B','GND','3.3k']]}
+ {name:'電流源網路',ref:'GND',elems:[['I1','I','GND','A','2m'],['R1','R','A','GND','1k'],['R2','R','A','B','2.2k'],['R3','R','B','GND','3.3k']]},
+ {name:'相依電源',ref:'GND',elems:[['V1','V','GND','A','5'],['R1','R','A','B','2k'],['R2','R','B','GND','1k'],['E1','E','GND','C','3','B,GND'],['R3','R','C','GND','500'],['F1','F','GND','D','50','R1'],['R4','R','D','GND','100']]}
 ];
 
 /* ---------- utils ---------- */
@@ -195,15 +200,15 @@ function vsym(node){return 'V<sub>'+esc(node)+'</sub>';}
 function signed(x,unit){return (x<0?'− ':'+ ')+fmt(Math.abs(x),unit);}
 
 /* ---------- storage ---------- */
-function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos,expand:state.expand}));}catch(e){}}
+function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos,epos:state.epos,expand:state.expand}));}catch(e){}}
 function load(){
-  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};state.expand=s.expand!==false;return true;}}catch(e){}
+  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};state.epos=s.epos||{};state.expand=s.expand!==false;return true;}}catch(e){}
   return false;
 }
 function applyPreset(p){
   state.elems=[];
-  for(var i=0;i<p.elems.length;i++){var e=p.elems[i];state.elems.push({name:e[0],type:e[1],n1:e[2],n2:e[3],val:e[4]});}
-  state.ref=p.ref;state.pos={};state.sel=null;
+  for(var i=0;i<p.elems.length;i++){var e=p.elems[i];state.elems.push({name:e[0],type:e[1],n1:e[2],n2:e[3],val:e[4],ctl:e[5]||''});}
+  state.ref=p.ref;state.pos={};state.epos={};state.sel=null;
   renderRows();update();
 }
 
@@ -221,7 +226,12 @@ function collect(){
     if(e.type==='R'&&v<=0){errors.push(name+'：電阻必須大於 0。');continue;}
     if(seen[name]){errors.push('元件名稱重複：'+name+'。');}
     seen[name]=1;
-    elems.push({name:name,type:e.type,n1:n1,n2:n2,val:v});
+    var el={name:name,type:e.type,n1:n1,n2:n2,val:v},ct=TYPES[e.type].ctl,cs=(e.ctl||'').trim();
+    if(ct==='V'){var parts=cs.split(/[,，\s]+/).filter(function(x){return x;});
+      if(parts.length!==2){errors.push(name+'：控制電壓要填兩個節點，如 A,B（V<sub>A</sub>−V<sub>B</sub>）。');continue;}
+      el.c1=parts[0];el.c2=parts[1];}
+    else if(ct==='I'){if(!cs){errors.push(name+'：要填控制電流所流經的元件名稱。');continue;}el.ctrl=cs;}
+    elems.push(el);
     if(nodes.indexOf(n1)<0)nodes.push(n1);
     if(nodes.indexOf(n2)<0)nodes.push(n2);
   }
@@ -256,10 +266,22 @@ function analyze(model){
   }
   var floating=[];for(i=0;i<nodes.length;i++)if(parent[nodes[i]]===undefined)floating.push(nodes[i]);
   if(floating.length){res.errors.push('節點 '+floating.join('、')+' 沒有連到參考節點。');return res;}
+  /* dependent-source controls */
+  var byName={};for(i=0;i<elems.length;i++)byName[elems[i].name]=elems[i];
+  for(i=0;i<elems.length;i++){e=elems[i];
+    if(e.c1!==undefined){if(nodes.indexOf(e.c1)<0||nodes.indexOf(e.c2)<0){res.errors.push(e.name+'：控制節點 '+e.c1+'、'+e.c2+' 必須是電路中的節點。');}
+      else if(e.c1===e.c2)res.errors.push(e.name+'：控制電壓的兩節點相同。');}
+    if(e.ctrl!==undefined){var ce=byName[e.ctrl];
+      if(!ce)res.errors.push(e.name+'：找不到控制元件「'+esc(e.ctrl)+'」。');
+      else if(ce===e)res.errors.push(e.name+'：不能以自己為控制元件。');
+      else if(ce.type==='F'||ce.type==='G')res.errors.push(e.name+'：控制元件不能是 F 或 G 型相依電流源（請改控制它旁邊的電阻或電壓源）。');
+      else e.ctrlE=ce;}
+  }
+  if(res.errors.length)return res;
   /* MNA */
   var idx={},nn=0;
   for(i=0;i<nodes.length;i++)if(nodes[i]!==ref)idx[nodes[i]]=nn++;
-  var vs=[];for(i=0;i<elems.length;i++)if(elems[i].type==='V')vs.push(elems[i]);
+  var vs=[];for(i=0;i<elems.length;i++)if(VTYPE[elems[i].type])vs.push(elems[i]);
   var N=nn+vs.length,A=[],z=[],r,c;
   for(r=0;r<N;r++){A[r]=[];for(c=0;c<N;c++)A[r][c]=0;z[r]=0;}
   var ia,ib;
@@ -272,11 +294,25 @@ function analyze(model){
       if(ia!==undefined)z[ia]-=e.val;if(ib!==undefined)z[ib]+=e.val;
     }
   }
+  /* I(n1→n2) of an element as linear expression: {v:{node:coef}, x:{unknown:coef}, c:const} */
+  function expr(el){var o={v:{},x:{},c:0};
+    if(el.type==='R'){o.v[el.n1]=(o.v[el.n1]||0)+1/el.val;o.v[el.n2]=(o.v[el.n2]||0)-1/el.val;}
+    else if(VTYPE[el.type]){o.x[nn+vs.indexOf(el)]=1;}
+    else if(el.type==='I'){o.c=el.val;}
+    else if(el.type==='G'){o.v[el.c1]=(o.v[el.c1]||0)+el.val;o.v[el.c2]=(o.v[el.c2]||0)-el.val;}
+    return o;}
+  function addExpr(row,o,f){var n;for(n in o.v){if(idx[n]!==undefined)A[row][idx[n]]+=f*o.v[n];}for(n in o.x){A[row][+n]+=f*o.x[n];}z[row]-=f*o.c;}
+  for(i=0;i<elems.length;i++){e=elems[i];ia=idx[e.n1];ib=idx[e.n2];
+    if(e.type==='G'){var ex=expr(e);if(ia!==undefined)addExpr(ia,ex,1);if(ib!==undefined)addExpr(ib,ex,-1);}
+    else if(e.type==='F'){var ef=expr(e.ctrlE);if(ia!==undefined)addExpr(ia,ef,e.val);if(ib!==undefined)addExpr(ib,ef,-e.val);}
+  }
   for(i=0;i<vs.length;i++){
     e=vs[i];ia=idx[e.n1];ib=idx[e.n2];var k=nn+i;
     if(ia!==undefined){A[ia][k]+=1;A[k][ia]-=1;}
     if(ib!==undefined){A[ib][k]-=1;A[k][ib]+=1;}
-    z[k]=e.val;
+    if(e.type==='V')z[k]=e.val;
+    else if(e.type==='E'){if(idx[e.c1]!==undefined)A[k][idx[e.c1]]-=e.val;if(idx[e.c2]!==undefined)A[k][idx[e.c2]]+=e.val;}
+    else if(e.type==='H'){addExpr(k,expr(e.ctrlE),-e.val);}
   }
   var x=solveLin(A,z);
   if(!x){res.errors.push('電路無唯一解：可能有電壓源並聯或成迴路、電流源串聯，或懸空的電流源。');return res;}
@@ -285,8 +321,10 @@ function analyze(model){
     e=elems[i];var d=res.V[e.n1]-res.V[e.n2];
     if(e.type==='R')res.I[e.name]=d/e.val;
     else if(e.type==='I')res.I[e.name]=e.val;
-    else res.I[e.name]=x[nn+vs.indexOf(e)];
+    else if(e.type==='G')res.I[e.name]=e.val*(res.V[e.c1]-res.V[e.c2]);
+    else if(VTYPE[e.type])res.I[e.name]=x[nn+vs.indexOf(e)];
   }
+  for(i=0;i<elems.length;i++){e=elems[i];if(e.type==='F')res.I[e.name]=e.val*res.I[e.ctrlE.name];}
   /* loops from non-tree elements */
   function pathToRoot(n){var p=[];while(parent[n]){p.push({node:n,via:parent[n].e,up:parent[n].node});n=parent[n].node;}return p;}
   for(i=0;i<elems.length;i++){
@@ -320,6 +358,7 @@ function placeNodes(nodes){
     }
   }
 }
+var stubNode={};
 var GND_SYM='<g stroke="var(--ink)" stroke-width="1.6"><line x1="0" y1="0" x2="0" y2="9"/><line x1="-11" y1="9" x2="11" y2="9"/><line x1="-7" y1="13" x2="7" y2="13"/><line x1="-3" y1="17" x2="3" y2="17"/></g>';
 function drawSchem(model,res){
   var svg=$('schem'),out=[],i,e,ref=state.ref;
@@ -329,14 +368,15 @@ function drawSchem(model,res){
   var selLoop=null;
   if(state.sel&&state.sel.type==='loop'&&res&&res.loops[state.sel.i]){selLoop={};for(i=0;i<res.loops[state.sel.i].length;i++)selLoop[res.loops[state.sel.i][i].e.name]=1;}
   /* ground stubs: one per element touching ref */
-  var stub={},maxY=300;
+  var stub={},maxY=300;stubNode={};
   if(expand){
     var byNode={};
     for(i=0;i<model.elems.length;i++){e=model.elems[i];if(e.n1===ref||e.n2===ref){var o=e.n1===ref?e.n2:e.n1;if(o===ref)continue;(byNode[o]=byNode[o]||[]).push(e);}}
     for(var nm in byNode){var arr=byNode[nm],P=state.pos[nm];if(!P)continue;
-      for(i=0;i<arr.length;i++){var sx=P.x+(i-(arr.length-1)/2)*104;sx=Math.max(24,Math.min(376,sx));stub[arr[i].name]={x:sx,y:P.y+110};maxY=Math.max(maxY,P.y+110+50);}}
+      for(i=0;i<arr.length;i++){var sx=P.x+(i-(arr.length-1)/2)*104;sx=Math.max(24,Math.min(376,sx));var ep0=state.epos[arr[i].name];stub[arr[i].name]=ep0?{x:ep0.x,y:ep0.y}:{x:sx,y:P.y+110};stubNode[arr[i].name]=nm;maxY=Math.max(maxY,stub[arr[i].name].y+50);}}
   }
   for(i=0;i<nodes.length;i++){var pp=state.pos[nodes[i]];if(pp)maxY=Math.max(maxY,pp.y+50);}
+  for(var en in state.epos){if(!stub[en])maxY=Math.max(maxY,state.epos[en].y+40);}
   svg.setAttribute('viewBox','0 0 400 '+Math.round(maxY));
   /* group parallel edges (non-stub only) */
   var groups={};
@@ -357,16 +397,20 @@ function drawSchem(model,res){
     var dx=P2.x-P1.x,dy=P2.y-P1.y,len=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/len,uy=dy/len,px=-uy,py=ux;
     var cx=(P1.x+P2.x)/2+px*off,cy=(P1.y+P2.y)/2+py*off;
     var mx=(P1.x+2*cx+P2.x)/4,my=(P1.y+2*cy+P2.y)/4;
+    var epc=!isStub&&state.epos[e.name];
+    if(epc){mx=epc.x;my=epc.y;cx=2*mx-(P1.x+P2.x)/2;cy=2*my-(P1.y+P2.y)/2;off=(mx-(P1.x+P2.x)/2)*px+(my-(P1.y+P2.y)/2)*py;if(Math.abs(off)<6)off=0;}
     var ang=Math.atan2(uy,ux)*180/Math.PI;
     var hl=selLoop&&selLoop[e.name];
     var d='M'+P1.x.toFixed(1)+' '+P1.y.toFixed(1)+' Q'+cx.toFixed(1)+' '+cy.toFixed(1)+' '+P2.x.toFixed(1)+' '+P2.y.toFixed(1);
     if(busFrom){var G1=stub[e.name];d='M'+busFrom.x.toFixed(1)+' '+busFrom.y.toFixed(1)+' L'+G1.x.toFixed(1)+' '+busFrom.y.toFixed(1)+' L'+G1.x.toFixed(1)+' '+G1.y.toFixed(1);}
     if(hl)out.push('<path d="'+d+'" fill="none" stroke="var(--sel)" stroke-width="7" stroke-linecap="round" opacity=".55"/>');
     out.push('<path d="'+d+'" fill="none" stroke="var(--ink)" stroke-width="1.6"/>');
-    var sym='<g transform="translate('+mx.toFixed(1)+' '+my.toFixed(1)+') rotate('+ang.toFixed(1)+')" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)">';
+    var sym='<g data-elem="'+esc(e.name)+'" style="cursor:grab" transform="translate('+mx.toFixed(1)+' '+my.toFixed(1)+') rotate('+ang.toFixed(1)+')" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)"><circle r="20" fill="transparent" stroke="none"/>';
     if(e.type==='R'){sym+='<rect x="-16" y="-7" width="32" height="14" rx="1"/>';}
     else if(e.type==='V'){sym+='<circle r="13"/><line x1="-9" y1="0" x2="-3" y2="0"/><line x1="3" y1="0" x2="9" y2="0"/><line x1="6" y1="-3" x2="6" y2="3"/>';}
-    else{sym+='<circle r="13"/><line x1="-8" y1="0" x2="5" y2="0"/><polygon points="4,-4 10,0 4,4" fill="var(--ink)" stroke="none"/>';}
+    else if(e.type==='I'){sym+='<circle r="13"/><line x1="-8" y1="0" x2="5" y2="0"/><polygon points="4,-4 10,0 4,4" fill="var(--ink)" stroke="none"/>';}
+    else if(e.type==='E'||e.type==='H'){sym+='<polygon points="-15,0 0,-13 15,0 0,13"/><line x1="-9" y1="0" x2="-3" y2="0"/><line x1="3" y1="0" x2="9" y2="0"/><line x1="6" y1="-3" x2="6" y2="3"/>';}
+    else{sym+='<polygon points="-15,0 0,-13 15,0 0,13"/><line x1="-8" y1="0" x2="5" y2="0"/><polygon points="4,-4 10,0 4,4" fill="var(--ink)" stroke="none"/>';}
     sym+='</g>';out.push(sym);
     /* label side: outward from curve; name one side, current the other */
     var s=off>0?1:-1;
@@ -375,7 +419,7 @@ function drawSchem(model,res){
     var lx=mx+px*(-s*24),ly=my+py*(-s*24);
     var unit=TYPES[e.type].unit;
     var TS='style="paint-order:stroke;stroke:var(--paper);stroke-width:4px"';
-    out.push('<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--ink)" '+TS+'>'+esc(e.name)+' '+esc(fmt(e.val,unit))+'</text>');
+    out.push('<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" class="mono" font-size="11" fill="var(--ink)" '+TS+'>'+esc(e.name)+' '+esc(fmt(e.val,unit))+(e.c1!==undefined?' ×V('+esc(e.c1)+','+esc(e.c2)+')':(e.ctrl!==undefined?' ×I('+esc(e.ctrl)+')':''))+'</text>');
     if(res&&res.I&&isFinite(res.I[e.name])){
       var I=res.I[e.name],dir=I>=0?1:-1;
       var ax=mx+ux*30*dir,ay=my+uy*30*dir,aang=(dir>0?ang:ang+180);
@@ -406,25 +450,30 @@ function drawSchem(model,res){
 (function(){
   var svg=$('schem'),drag=null,moved=false;
   function pt(ev){var p=svg.createSVGPoint();p.x=ev.clientX;p.y=ev.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
-  var fixed=false;
-  function findNode(t){while(t&&t!==svg){if(t.getAttribute&&t.getAttribute('data-node')!==null){fixed=!!t.getAttribute('data-fixed');return t.getAttribute('data-node');}t=t.parentNode;}return null;}
+  var fixed=false,dragElem=null;
+  function findNode(t){while(t&&t!==svg){if(t.getAttribute){if(t.getAttribute('data-elem')!==null){dragElem=t.getAttribute('data-elem');fixed=false;return '\u0000elem';}if(t.getAttribute('data-node')!==null){dragElem=null;fixed=!!t.getAttribute('data-fixed');return t.getAttribute('data-node');}}t=t.parentNode;}return null;}
   svg.addEventListener('pointerdown',function(ev){var n=findNode(ev.target);if(n===null)return;drag=n;moved=false;try{svg.setPointerCapture(ev.pointerId);}catch(e){}ev.preventDefault();});
-  svg.addEventListener('pointermove',function(ev){if(!drag||fixed)return;var p=pt(ev);moved=true;state.pos[drag]={x:Math.max(24,Math.min(376,p.x)),y:Math.max(24,Math.min(270,p.y))};drawSchem(lastModel,lastRes);});
-  function end(ev){if(!drag)return;if(!moved){state.sel=(state.sel&&state.sel.type==='node'&&state.sel.name===drag)?null:{type:'node',name:drag};renderResults(lastModel,lastRes);}drag=null;save();drawSchem(lastModel,lastRes);}
+  svg.addEventListener('pointermove',function(ev){if(!drag||fixed)return;var p=pt(ev);moved=true;var x=Math.max(24,Math.min(376,p.x)),y=Math.max(24,p.y);
+    if(dragElem){var sn=stubNode[dragElem];if(sn&&state.pos[sn]){var gy=2*y-state.pos[sn].y;state.epos[dragElem]={x:x,y:Math.max(state.pos[sn].y+60,gy)};}else state.epos[dragElem]={x:x,y:y};}
+    else state.pos[drag]={x:x,y:Math.min(900,y)};
+    drawSchem(lastModel,lastRes);});
+  function end(ev){if(!drag)return;if(!moved&&!dragElem){state.sel=(state.sel&&state.sel.type==='node'&&state.sel.name===drag)?null:{type:'node',name:drag};renderResults(lastModel,lastRes);}drag=null;save();drawSchem(lastModel,lastRes);}
   svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
 })();
 
 /* ---------- editor ---------- */
+function typeOpts(t){var o='',k;for(k in TYPES)o+='<option value="'+k+'"'+(t===k?' selected':'')+'>'+TYPES[k].label+'</option>';return o;}
 function renderRows(){
   var tb=$('rows'),html='',i;
   for(i=0;i<state.elems.length;i++){
     var e=state.elems[i];
     html+='<tr data-i="'+i+'">'+
       '<td><input class="name mono" data-f="name" value="'+esc(e.name||'')+'" placeholder="R1"></td>'+
-      '<td><select data-f="type"><option value="R"'+(e.type==='R'?' selected':'')+'>電阻</option><option value="V"'+(e.type==='V'?' selected':'')+'>電壓源</option><option value="I"'+(e.type==='I'?' selected':'')+'>電流源</option></select></td>'+
+      '<td><select data-f="type">'+typeOpts(e.type)+'</select></td>'+
       '<td><input class="node mono" data-f="n1" value="'+esc(e.n1||'')+'" placeholder="A"></td>'+
       '<td><input class="node mono" data-f="n2" value="'+esc(e.n2||'')+'" placeholder="B"></td>'+
       '<td><input class="val mono" data-f="val" value="'+esc(e.val||'')+'" placeholder="'+TYPES[e.type].unit+'" inputmode="decimal"></td>'+
+      '<td><input class="node mono" data-f="ctl" value="'+esc(e.ctl||'')+'" placeholder="'+(TYPES[e.type].ctl==='V'?'A,B':(TYPES[e.type].ctl==='I'?'R1':'—'))+'"'+(TYPES[e.type].ctl?'':' disabled')+'></td>'+
       '<td><button class="x" data-del="'+i+'" aria-label="刪除">×</button></td></tr>';
   }
   tb.innerHTML=html;
@@ -444,8 +493,9 @@ $('add').addEventListener('click',function(){
   renderRows();update();
   var ins=$('rows').querySelectorAll('input[data-f="n1"]');if(ins.length)ins[ins.length-1].focus();
 });
-$('clear').addEventListener('click',function(){state.elems=[];state.pos={};state.sel=null;renderRows();update();});
-$('expand').addEventListener('change',function(){state.expand=$('expand').checked;state.pos={};update();});
+$('clear').addEventListener('click',function(){state.elems=[];state.pos={};state.epos={};state.sel=null;renderRows();update();});
+$('expand').addEventListener('change',function(){state.expand=$('expand').checked;state.pos={};state.epos={};update();});
+$('relayout').addEventListener('click',function(){state.pos={};state.epos={};update();});
 $('ref').addEventListener('change',function(){state.ref=$('ref').value;state.sel=null;update();});
 function renderRef(nodes){
   var sel=$('ref'),html='',i;
@@ -465,6 +515,8 @@ function termsKCL(node,res){
     e=res.elems[i];if(e.n1!==node&&e.n2!==node)continue;
     var atN1=e.n1===node,other=atN1?e.n2:e.n1,I=res.I[e.name]*(atN1?1:-1);
     if(e.type==='R'){sym.push('('+vsym(node)+' − '+vsym(other)+')/'+sub(e.name));}
+    else if(e.type==='G'){sym.push((atN1?'':'−')+sub(e.name)+'·('+vsym(e.c1)+' − '+vsym(e.c2)+')');}
+    else if(e.type==='F'){sym.push((atN1?'':'−')+sub(e.name)+'·I<sub>'+esc(e.ctrl)+'</sub>');}
     else{sym.push((atN1?'':'−')+'I<sub>'+esc(e.name)+'</sub>');}
     num.push(signed(I,'A'));sum+=I;
   }
@@ -532,6 +584,7 @@ function update(){
     var model=collect();renderRef(model.nodes);
     /* drop positions of nodes that vanished */
     var p={},i;for(i=0;i<model.nodes.length;i++)if(state.pos[model.nodes[i]])p[model.nodes[i]]=state.pos[model.nodes[i]];state.pos=p;
+    var ep={};for(i=0;i<model.elems.length;i++)if(state.epos[model.elems[i].name])ep[model.elems[i].name]=state.epos[model.elems[i].name];state.epos=ep;
     var res=model.errors.length?null:analyze(model);
     if(model.errors.length)res={errors:[],V:{},I:{},elems:[],nodes:[],loops:[]};
     lastModel=model;lastRes=res;
