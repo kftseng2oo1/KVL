@@ -150,6 +150,13 @@ sub{font-size:.75em}
   <p class="hint">迴路取自生成樹：每加入一條非樹枝的元件，就形成一個獨立迴路。迴路數 = 元件數 − 節點數 + 1。</p>
 </section>
 
+<section>
+  <h2>戴維寧 / 諾頓等效</h2>
+  <div class="tools" style="margin-top:0"><label>端點 a <select id="pa"></select></label><label>端點 b <select id="pb"></select></label></div>
+  <div id="thev" style="margin-top:10px"><span class="empty">尚未解出。</span></div>
+  <p class="hint">從端點 a、b 看進去的等效。若要求含負載的電路，請先把 a–b 間的負載刪除再看。R<sub>th</sub>：獨立源歸零（電壓源短路、電流源開路）並在 a–b 注入 1 A 測試電流；相依電源保留。I<sub>N</sub>：a–b 短路電流。R<sub>N</sub> = R<sub>th</sub>。</p>
+</section>
+
 <p class="foot">節點分析法（MNA）求解 · 單檔 PWA</p>
 </div>
 
@@ -160,7 +167,7 @@ var TYPES={R:{label:'電阻',unit:'Ω'},V:{label:'電壓源',unit:'V'},I:{label:
  E:{label:'VCVS 壓控壓源',unit:'V/V',ctl:'V'},G:{label:'VCCS 壓控流源',unit:'S',ctl:'V'},
  F:{label:'CCCS 流控流源',unit:'A/A',ctl:'I'},H:{label:'CCVS 流控壓源',unit:'Ω',ctl:'I'}};
 var VTYPE={V:1,E:1,H:1};
-var state={elems:[],ref:'GND',pos:{},epos:{},sel:null,expand:true};
+var state={elems:[],ref:'GND',pos:{},epos:{},sel:null,expand:true,port:{a:'',b:''}};
 var $=function(id){return document.getElementById(id);};
 var timer=null;
 
@@ -200,15 +207,15 @@ function vsym(node){return 'V<sub>'+esc(node)+'</sub>';}
 function signed(x,unit){return (x<0?'− ':'+ ')+fmt(Math.abs(x),unit);}
 
 /* ---------- storage ---------- */
-function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos,epos:state.epos,expand:state.expand}));}catch(e){}}
+function save(){try{localStorage.setItem('kvlkcl_v1',JSON.stringify({elems:state.elems,ref:state.ref,pos:state.pos,epos:state.epos,expand:state.expand,port:state.port}));}catch(e){}}
 function load(){
-  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};state.epos=s.epos||{};state.expand=s.expand!==false;return true;}}catch(e){}
+  try{var s=JSON.parse(localStorage.getItem('kvlkcl_v1'));if(s&&s.elems&&s.elems.length){state.elems=s.elems;state.ref=s.ref||'GND';state.pos=s.pos||{};state.epos=s.epos||{};state.expand=s.expand!==false;state.port=s.port||{a:'',b:''};return true;}}catch(e){}
   return false;
 }
 function applyPreset(p){
   state.elems=[];
   for(var i=0;i<p.elems.length;i++){var e=p.elems[i];state.elems.push({name:e[0],type:e[1],n1:e[2],n2:e[3],val:e[4],ctl:e[5]||''});}
-  state.ref=p.ref;state.pos={};state.epos={};state.sel=null;
+  state.ref=p.ref;state.pos={};state.epos={};state.sel=null;state.port={a:'',b:''};
   renderRows();update();
 }
 
@@ -577,11 +584,79 @@ $('vnodes').addEventListener('click',function(ev){pick(ev,'data-node',function(v
 $('kcl').addEventListener('click',function(ev){pick(ev,'data-node',function(v){return {type:'node',name:v};});});
 $('kvl').addEventListener('click',function(ev){pick(ev,'data-loop',function(v){return {type:'loop',i:+v};});});
 
+/* ---------- Thevenin / Norton ---------- */
+function renderPortSel(nodes){
+  var i,a=$('pa'),b=$('pb');
+  if(!nodes.length){a.innerHTML=b.innerHTML='<option>—</option>';return;}
+  var others=[];for(i=0;i<nodes.length;i++)if(nodes[i]!==state.ref)others.push(nodes[i]);
+  if(nodes.indexOf(state.port.a)<0)state.port.a=others[0]||nodes[0];
+  if(nodes.indexOf(state.port.b)<0||state.port.b===state.port.a)state.port.b=state.ref;
+  var h1='',h2='';
+  for(i=0;i<nodes.length;i++){h1+='<option value="'+esc(nodes[i])+'"'+(nodes[i]===state.port.a?' selected':'')+'>'+esc(nodes[i])+'</option>';h2+='<option value="'+esc(nodes[i])+'"'+(nodes[i]===state.port.b?' selected':'')+'>'+esc(nodes[i])+'</option>';}
+  a.innerHTML=h1;b.innerHTML=h2;
+}
+$('pa').addEventListener('change',function(){state.port.a=$('pa').value;renderThev(lastModel,lastRes);save();});
+$('pb').addEventListener('change',function(){state.port.b=$('pb').value;renderThev(lastModel,lastRes);save();});
+function cloneModel(model,mapFn,extra){var el=[],i,k;
+  for(i=0;i<model.elems.length;i++){var e=model.elems[i],c={};for(k in e)if(k!=='ctrlE')c[k]=e[k];c=mapFn(c);if(c)el.push(c);}
+  return {errors:[],elems:el.concat(extra||[]),nodes:model.nodes.slice()};}
+function thevenin(model,res,a,b){
+  var out={vth:res.V[a]-res.V[b],rth:NaN,isc:NaN,inorton:NaN,open:false,short_:false};
+  var r1=analyze(cloneModel(model,function(c){if(c.type==='V')c.val=0;else if(c.type==='I'){c.type='R';c.val=1e12;}return c;},[{name:'\u0000ITEST',type:'I',n1:b,n2:a,val:1}]));
+  if(!r1.errors.length)out.rth=r1.V[a]-r1.V[b];
+  var r2=analyze(cloneModel(model,function(c){return c;},[{name:'\u0000VTEST',type:'V',n1:a,n2:b,val:0}]));
+  if(!r2.errors.length)out.isc=r2.I['\u0000VTEST'];
+  if(isFinite(out.rth)&&out.rth>1e11){out.open=true;out.rth=Infinity;}
+  if(isFinite(out.rth)&&Math.abs(out.rth)<1e-9){out.short_=true;out.rth=0;}
+  if(!isFinite(out.rth)&&isFinite(out.isc)&&Math.abs(out.isc)>1e-15)out.rth=out.vth/out.isc;
+  if(isFinite(out.isc))out.inorton=out.isc;else if(isFinite(out.rth)&&out.rth>0)out.inorton=out.vth/out.rth;
+  return out;
+}
+function eqSvg(kind,a,b,v,r,i){
+  var TS='style="paint-order:stroke;stroke:var(--paper);stroke-width:4px"',W='stroke="var(--ink)" stroke-width="1.6" fill="none"';
+  var h='<svg viewBox="0 0 360 140" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:360px;display:block;background:var(--paper);border:1px solid var(--line);border-radius:8px" aria-label="'+kind+'">';
+  if(kind==='thevenin'){
+    h+='<path d="M70 52 V30 H130 M162 30 H250 M70 78 V110 H250" '+W+'/>';
+    h+='<g transform="translate(70 65)" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)"><circle r="13"/><line x1="-3" y1="-6" x2="3" y2="-6"/><line x1="0" y1="-9" x2="0" y2="-3"/><line x1="-3" y1="6" x2="3" y2="6"/></g>';
+    h+='<rect x="130" y="23" width="32" height="14" rx="1" '+W+' fill="var(--card)"/>';
+    h+='<text x="146" y="16" text-anchor="middle" class="mono" font-size="11" fill="var(--ink)" '+TS+'>R<tspan font-size="8" dy="3">th</tspan><tspan dy="-3"> = '+esc(r)+'</tspan></text>';
+    h+='<text x="20" y="69" text-anchor="middle" class="mono" font-size="11" fill="var(--v)" '+TS+'>V<tspan font-size="8" dy="3">th</tspan></text><text x="20" y="84" text-anchor="middle" class="mono" font-size="11" fill="var(--v)" '+TS+'>'+esc(v)+'</text>';
+  }else{
+    h+='<path d="M80 52 V30 H250 M80 78 V110 H250 M170 30 V49 M170 81 V110" '+W+'/>';
+    h+='<g transform="translate(80 65)" stroke="var(--ink)" stroke-width="1.6" fill="var(--card)"><circle r="13"/><line x1="0" y1="8" x2="0" y2="-5"/><polygon points="-4,-4 0,-10 4,-4" fill="var(--ink)" stroke="none"/></g>';
+    h+='<rect x="163" y="49" width="14" height="32" rx="1" '+W+' fill="var(--card)"/>';
+    h+='<text x="200" y="69" text-anchor="start" class="mono" font-size="11" fill="var(--ink)" '+TS+'>R<tspan font-size="8" dy="3">N</tspan><tspan dy="-3"> = '+esc(r)+'</tspan></text>';
+    h+='<text x="28" y="60" text-anchor="middle" class="mono" font-size="11" fill="var(--i)" '+TS+'>I<tspan font-size="8" dy="3">N</tspan></text><text x="28" y="76" text-anchor="middle" class="mono" font-size="11" fill="var(--i)" '+TS+'>'+esc(i)+'</text>';
+  }
+  h+='<circle cx="250" cy="30" r="5" fill="var(--paper)" stroke="var(--v)" stroke-width="2"/><circle cx="250" cy="110" r="5" fill="var(--paper)" stroke="var(--v)" stroke-width="2"/>';
+  h+='<text x="262" y="34" font-size="12" font-weight="700" fill="var(--ink)">a：'+esc(a)+'</text><text x="262" y="114" font-size="12" font-weight="700" fill="var(--ink)">b：'+esc(b)+'</text>';
+  return h+'</svg>';
+}
+function renderThev(model,res){
+  var box=$('thev');
+  var ok=res&&!res.errors.length&&!(model.errors||[]).length&&model.nodes.length>=2;
+  if(!ok){box.innerHTML='<span class="empty">尚未解出。</span>';return;}
+  var a=state.port.a,b=state.port.b;
+  if(a===b){box.innerHTML='<span class="empty">端點 a、b 要不同。</span>';return;}
+  var t=thevenin(model,res,a,b);
+  var rS=t.open?'∞（開路）':(isFinite(t.rth)?fmt(t.rth,'Ω'):'—');
+  var iS=t.short_?'∞（理想電壓源，無諾頓等效）':(isFinite(t.inorton)?fmt(t.inorton,'A'):'—');
+  var vS=t.open?fmt(t.vth,'V')+'（無戴維寧等效，僅諾頓）':fmt(t.vth,'V');
+  var html='<div class="chips" style="margin-bottom:12px">'+
+    '<div class="chip"><b>V<sub>th</sub> = V<sub>'+esc(a)+'</sub> − V<sub>'+esc(b)+'</sub></b><span class="mono">'+esc(vS)+'</span></div>'+
+    '<div class="chip"><b>R<sub>th</sub> = R<sub>N</sub></b><span class="mono">'+esc(rS)+'</span></div>'+
+    '<div class="chip" style="background:var(--ibg)"><b>I<sub>N</sub>（a→b 短路電流）</b><span class="mono" style="color:var(--i)">'+esc(iS)+'</span></div></div>';
+  if(!t.open)html+='<div style="margin-bottom:10px">'+eqSvg('thevenin',a,b,fmt(t.vth,'V'),rS,'')+'</div>';
+  if(!t.short_&&isFinite(t.inorton))html+='<div style="margin-bottom:10px">'+eqSvg('norton',a,b,'',rS,fmt(t.inorton,'A'))+'</div>';
+  if(isFinite(t.rth)&&t.rth>0&&!t.open)html+='<p class="hint" style="margin:0">最大功率轉移：負載 R<sub>L</sub> = R<sub>th</sub> = <span class="mono">'+esc(fmt(t.rth,'Ω'))+'</span> 時，P<sub>max</sub> = V<sub>th</sub>²/(4R<sub>th</sub>) = <span class="mono">'+esc(fmt(t.vth*t.vth/(4*t.rth),'W'))+'</span>。</p>';
+  box.innerHTML=html;
+}
+
 /* ---------- main ---------- */
 function update(){
   if(timer)clearTimeout(timer);
   timer=setTimeout(function(){
-    var model=collect();renderRef(model.nodes);
+    var model=collect();renderRef(model.nodes);renderPortSel(model.nodes);
     /* drop positions of nodes that vanished */
     var p={},i;for(i=0;i<model.nodes.length;i++)if(state.pos[model.nodes[i]])p[model.nodes[i]]=state.pos[model.nodes[i]];state.pos=p;
     var ep={};for(i=0;i<model.elems.length;i++)if(state.epos[model.elems[i].name])ep[model.elems[i].name]=state.epos[model.elems[i].name];state.epos=ep;
@@ -591,7 +666,7 @@ function update(){
     if(state.sel&&state.sel.type==='loop'&&(!res||!res.loops[state.sel.i]))state.sel=null;
     if(state.sel&&state.sel.type==='node'&&model.nodes.indexOf(state.sel.name)<0)state.sel=null;
     drawSchem(model,res.errors.length||model.errors.length?null:res);
-    renderResults(model,res);
+    renderResults(model,res);renderThev(model,res);
     save();
   },120);
 }
